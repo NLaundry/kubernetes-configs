@@ -1,0 +1,18 @@
+# Ingress for Adguard Home
+
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute 
+metadata:
+  name: adguard-home
+  namespace: default
+spec:
+  entryPoints:
+    - web #80 ... but not 443 (http, but not https)
+  routes:
+    - match: Host(`adguard.laundry.mat`)
+      kind: Rule
+      services:
+        - name: adguard-home
+          port: 3000
+          kind: Service
+
