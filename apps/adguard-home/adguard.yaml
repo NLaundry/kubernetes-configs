@@ -1,0 +1,159 @@
+# DEPLOYMENT
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adguard
+  namespace: default
+  labels:
+    app: adguard
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: adguard
+  template:
+    metadata:
+      labels:
+        app: adguard
+    spec:
+      # securityContext:
+      #   fsGroup: 1000
+      #   runAsUser: 1000
+      #   runAsGroup: 1000
+      containers:
+        - name: adguard
+          image: adguard/adguardhome:v0.107.65
+          imagePullPolicy: IfNotPresent
+          env: 
+            - name: TZ
+              value: America/Toronto
+          ports:
+            - name: http
+              containerPort: 3000
+            - name: dns-tcp
+              containerPort: 53
+              protocol: TCP
+            - name: dns-udp
+              containerPort: 53
+              protocol: UDP
+          volumeMounts:
+            - name: config 
+              mountPath: /opt/adguardhome/conf
+            - name: work 
+              mountPath: /opt/adguardhome/work
+          # livenessProbe:
+          #   httpGet:
+          #     path: /control/status
+          #     port: 3000
+          #   initialDelaySeconds: 120
+          #   periodSeconds: 10
+          # readinessProbe:
+          #   httpGet:
+          #     path: /control/status
+          #     port: 3000
+          #   initialDelaySeconds: 120
+          #   periodSeconds: 5
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: adguard-config
+        - name: work
+          persistentVolumeClaim:
+            claimName: adguard-work
+
+---
+
+# Service: UI (ClusterIP)
+apiVersion: v1
+kind: Service
+metadata:
+  name: adguard-ui
+  namespace: default
+  labels:
+    app: adguard
+spec:
+  type: ClusterIP
+  selector:
+    app: adguard
+  ports: 
+    - name: http
+      port: 3000
+      targetPort: http
+
+---
+# Service: DNS (LoadBalancer)
+apiVersion: v1
+kind: Service
+metadata:
+  name: adguard-dns
+  namespace: default
+  labels:
+    app: adguard
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app: adguard
+  ports:
+    - name: dns-udp
+      port: 53
+      targetPort: dns-udp
+      protocol: UDP
+    - name: dns-tcp
+      port: 53
+      targetPort: dns-tcp
+      protocol: TCP
+
+---
+# INGRESS: UI via Traefik
+
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: adguard-ui
+  namespace: default
+spec:
+  entryPoints:
+    - web #80
+  routes:
+    - match: Host(`adguard.laundry.mat`)
+      kind: Rule
+      services: 
+        - name: adguard-ui
+          port: 3000
+          kind: Service
+
+--- 
+# PVC: Config
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: adguard-config
+  namespace: default
+  labels:
+    app: adguard
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+
+--- 
+# PVC: Work
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: adguard-work
+  namespace: default
+  labels:
+    app: adguard
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
